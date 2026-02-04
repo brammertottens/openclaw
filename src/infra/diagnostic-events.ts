@@ -137,7 +137,11 @@ export type DiagnosticSessionSecurityEvent = DiagnosticBaseEvent & {
     | "token.rotated"
     | "token.revoked"
     | "token.expired"
-    | "rate.limited";
+    | "rate.limited"
+    | "context.transition.requested"
+    | "context.transition.allowed"
+    | "context.transition.denied"
+    | "context.escalation.blocked";
   sessionKey?: string;
   tokenHash?: string; // SHA256 hash prefix for identification without exposing token
   agentId?: string;
@@ -148,6 +152,11 @@ export type DiagnosticSessionSecurityEvent = DiagnosticBaseEvent & {
     rotatedFromHash?: string;
     rateLimitWindowMs?: number;
     rateLimitCount?: number;
+    // Context transition metadata
+    transitionFrom?: string;
+    transitionTo?: string;
+    contextType?: string;
+    signerKeyId?: string;
   };
 };
 
