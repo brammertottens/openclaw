@@ -15,6 +15,28 @@ const SessionResetConfigSchema = z
   })
   .strict();
 
+/**
+ * Session security configuration for cryptographically secure session tokens.
+ */
+export const SessionSecuritySchema = z
+  .object({
+    /** Enable secure session tokens (default: false for backwards compatibility) */
+    enabled: z.boolean().optional(),
+    /** Token length in bytes (default: 32 = 256 bits) */
+    tokenBytes: z.number().int().min(16).max(64).optional(),
+    /** Session TTL in milliseconds (default: 86400000 = 24 hours, 0 = no expiry) */
+    ttlMs: z.number().int().min(0).optional(),
+    /** Enable automatic token rotation */
+    rotationEnabled: z.boolean().optional(),
+    /** Rotation interval in milliseconds (default: 86400000 = 24 hours) */
+    rotationIntervalMs: z.number().int().min(60000).optional(), // min 1 minute
+    /** Grace period for old tokens after rotation in ms (default: 300000 = 5 minutes) */
+    rotationGraceMs: z.number().int().min(0).optional(),
+    /** Rate limit for session creation (sessions per minute, 0 = disabled) */
+    rateLimitPerMinute: z.number().int().min(0).optional(),
+  })
+  .strict();
+
 export const SessionSendPolicySchema = z
   .object({
     default: z.union([z.literal("allow"), z.literal("deny")]).optional(),
@@ -82,6 +104,8 @@ export const SessionSchema = z
       })
       .strict()
       .optional(),
+    /** Session security configuration for cryptographically secure tokens */
+    security: SessionSecuritySchema.optional(),
   })
   .strict()
   .optional();

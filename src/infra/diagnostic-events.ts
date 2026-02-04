@@ -127,6 +127,30 @@ export type DiagnosticHeartbeatEvent = DiagnosticBaseEvent & {
   queued: number;
 };
 
+// Session security events
+export type DiagnosticSessionSecurityEvent = DiagnosticBaseEvent & {
+  type: "session.security";
+  action:
+    | "token.created"
+    | "token.validated"
+    | "token.validation.failed"
+    | "token.rotated"
+    | "token.revoked"
+    | "token.expired"
+    | "rate.limited";
+  sessionKey?: string;
+  tokenHash?: string; // SHA256 hash prefix for identification without exposing token
+  agentId?: string;
+  channel?: string;
+  reason?: string;
+  metadata?: {
+    expiresAtMs?: number;
+    rotatedFromHash?: string;
+    rateLimitWindowMs?: number;
+    rateLimitCount?: number;
+  };
+};
+
 export type DiagnosticEventPayload =
   | DiagnosticUsageEvent
   | DiagnosticWebhookReceivedEvent
@@ -139,7 +163,8 @@ export type DiagnosticEventPayload =
   | DiagnosticLaneEnqueueEvent
   | DiagnosticLaneDequeueEvent
   | DiagnosticRunAttemptEvent
-  | DiagnosticHeartbeatEvent;
+  | DiagnosticHeartbeatEvent
+  | DiagnosticSessionSecurityEvent;
 
 export type DiagnosticEventInput = DiagnosticEventPayload extends infer Event
   ? Event extends DiagnosticEventPayload

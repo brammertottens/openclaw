@@ -33,6 +33,9 @@ const DEFAULT_REDACT_PATTERNS: string[] = [
   String.raw`\b(pplx-[A-Za-z0-9_-]{10,})\b`,
   String.raw`\b(npm_[A-Za-z0-9]{10,})\b`,
   String.raw`\b(\d{6,}:[A-Za-z0-9_-]{20,})\b`,
+  // Secure session tokens (64 hex chars that look like standalone tokens).
+  String.raw`"sessionToken"\s*:\s*"([a-f0-9]{64})"`,
+  String.raw`\bsession[_-]?token[=:]\s*([a-f0-9]{64})\b`,
 ];
 
 type RedactOptions = {

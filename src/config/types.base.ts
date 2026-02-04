@@ -76,6 +76,23 @@ export type SessionResetByTypeConfig = {
   thread?: SessionResetConfig;
 };
 
+export type SessionSecurityConfig = {
+  /** Enable secure session tokens (default: false for backwards compatibility). */
+  enabled?: boolean;
+  /** Token length in bytes (default: 32 = 256 bits). */
+  tokenBytes?: number;
+  /** Session TTL in milliseconds (default: 86400000 = 24 hours, 0 = no expiry). */
+  ttlMs?: number;
+  /** Enable automatic token rotation. */
+  rotationEnabled?: boolean;
+  /** Rotation interval in milliseconds (default: 86400000 = 24 hours). */
+  rotationIntervalMs?: number;
+  /** Grace period for old tokens after rotation in ms (default: 300000 = 5 minutes). */
+  rotationGraceMs?: number;
+  /** Rate limit for session creation (sessions per minute, 0 = disabled). */
+  rateLimitPerMinute?: number;
+};
+
 export type SessionConfig = {
   scope?: SessionScope;
   /** DM session scoping (default: "main"). */
@@ -97,6 +114,8 @@ export type SessionConfig = {
     /** Max ping-pong turns between requester/target (0–5). Default: 5. */
     maxPingPongTurns?: number;
   };
+  /** Session security configuration for cryptographically secure tokens. */
+  security?: SessionSecurityConfig;
 };
 
 export type LoggingConfig = {
