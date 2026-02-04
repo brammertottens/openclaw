@@ -54,3 +54,42 @@ export {
   resolveThreadParentSessionKey,
   type ParsedAgentSessionKey,
 } from "./session-key-utils.js";
+
+// Session context signing (Ed25519)
+export {
+  generateContextKeyPair,
+  signSessionContext,
+  verifySignedContext,
+  canonicalizeContext,
+  isTransitionAllowed,
+  validateContextTransition,
+  createSignedContextForTransition,
+  validateTransitionRequest,
+  encodeSignedContext,
+  decodeSignedContext,
+  getOrCreateActiveKeyPair,
+  getTrustedPublicKeys,
+  loadContextKeyStore,
+  saveContextKeyStore,
+  ALLOWED_TRANSITIONS,
+  DEFAULT_CONTEXT_TTL_MS,
+  type SessionContextType,
+  type SessionContext,
+  type SignedSessionContext,
+  type SessionContextKeyPair,
+  type SessionContextTransition,
+} from "./session-context-signing.js";
+
+// Session context validation service
+export {
+  inferContextType,
+  isEscalation,
+  isDeescalation,
+  requestContextTransition,
+  validateContextToken,
+  canPerformAction,
+  getAllowedTransitionsFrom,
+  type SessionContextState,
+  type ContextTransitionResult,
+  type ContextValidationConfig,
+} from "./session-context-validation.js";
