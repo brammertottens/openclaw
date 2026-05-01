@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
 import os from "node:os";
 import type { createSubsystemLogger } from "../../../logging/subsystem.js";
-import type { ResolvedGatewayAuth } from "../../auth.js";
+import type { GatewayAuthResult, ResolvedGatewayAuth } from "../../auth.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "../../server-methods/types.js";
 import type { GatewayWsClient } from "../ws-types.js";
 import { loadConfig } from "../../../config/config.js";
@@ -41,6 +41,7 @@ import {
   validateConnectParams,
   validateRequestFrame,
 } from "../../protocol/index.js";
+import { getRateLimiter } from "../../rate-limiter.js";
 import { MAX_BUFFERED_BYTES, MAX_PAYLOAD_BYTES, TICK_INTERVAL_MS } from "../../server-constants.js";
 import { handleGatewayRequest } from "../../server-methods.js";
 import { formatError } from "../../server-utils.js";
@@ -57,6 +58,47 @@ import {
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
 const DEVICE_SIGNATURE_SKEW_MS = 10 * 60 * 1000;
+
+const DEFAULT_AUTH_RATE_LIMIT_PER_IP = 5;
+const DEFAULT_AUTH_RATE_LIMIT_WINDOW_MS = 60_000;
+
+/**
+ * Reasons returned by `authorizeGatewayConnect` that indicate the caller
+ * supplied bad credentials (vs. server-side configuration errors). Only these
+ * should count toward the per-IP failure budget.
+ */
+const AUTH_MISMATCH_REASONS = new Set([
+  "token_missing",
+  "token_mismatch",
+  "password_missing",
+  "password_mismatch",
+  "tailscale_user_mismatch",
+  "tailscale_whois_failed",
+]);
+
+function readEnvNumber(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function resolveAuthRateLimitOptions(gatewayConfig?: {
+  authRateLimitPerIp?: number;
+  authRateLimitWindowMs?: number;
+}): { threshold: number; windowMs: number } {
+  const threshold =
+    readEnvNumber("OPENCLAW_GATEWAY_AUTH_RATE_LIMIT_PER_IP") ??
+    gatewayConfig?.authRateLimitPerIp ??
+    DEFAULT_AUTH_RATE_LIMIT_PER_IP;
+  const windowMs =
+    readEnvNumber("OPENCLAW_GATEWAY_AUTH_RATE_LIMIT_WINDOW_MS") ??
+    gatewayConfig?.authRateLimitWindowMs ??
+    DEFAULT_AUTH_RATE_LIMIT_WINDOW_MS;
+  return { threshold, windowMs };
+}
 
 function resolveHostName(hostHeader?: string): string {
   const host = (hostHeader ?? "").trim().toLowerCase();
@@ -410,15 +452,66 @@ export function attachGatewayWsMessageHandler(params: {
         const allowControlUiBypass = allowInsecureControlUi || disableControlUiDeviceAuth;
         const device = disableControlUiDeviceAuth ? null : deviceRaw;
 
-        const authResult = await authorizeGatewayConnect({
-          auth: resolvedAuth,
-          connectAuth: connectParams.auth,
-          req: upgradeReq,
-          trustedProxies,
-        });
-        let authOk = authResult.ok;
+        // Per-IP brute-force throttle: block repeated handshake attempts from
+        // the same source before doing any credential comparison. Local
+        // clients (loopback, trusted proxies) are exempt because they cannot
+        // be used to anonymously brute-force credentials over the network.
+        const rateLimitKey = clientIp && !isLoopbackAddress(clientIp) ? clientIp : null;
+        const authRateLimitOptions = resolveAuthRateLimitOptions(configSnapshot.gateway);
+        const authRateLimiter = getRateLimiter("gateway-auth", authRateLimitOptions);
+        const rateLimitDecision =
+          rateLimitKey && !isLocalClient
+            ? authRateLimiter.checkLimit(rateLimitKey)
+            : { allowed: true as const };
+
+        const authResult: GatewayAuthResult = rateLimitDecision.allowed
+          ? await authorizeGatewayConnect({
+              auth: resolvedAuth,
+              connectAuth: connectParams.auth,
+              req: upgradeReq,
+              trustedProxies,
+            })
+          : { ok: false, reason: "rate_limited" };
+        let authOk = rateLimitDecision.allowed && authResult.ok;
         let authMethod =
           authResult.method ?? (resolvedAuth.mode === "password" ? "password" : "token");
+
+        if (!rateLimitDecision.allowed) {
+          const retryAfterMs = rateLimitDecision.retryAfterMs ?? authRateLimitOptions.windowMs;
+          const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+          const errorMessage = `rate limited: too many failed authentication attempts (retry after ${retryAfterSeconds}s)`;
+          setHandshakeState("failed");
+          logWsControl.warn(
+            `auth rate limited conn=${connId} remote=${remoteAddr ?? "?"} client=${clientLabel} retryAfterMs=${retryAfterMs}`,
+          );
+          setCloseCause("rate-limited", {
+            retryAfterMs,
+            client: connectParams.client.id,
+            clientDisplayName: connectParams.client.displayName,
+            mode: connectParams.client.mode,
+            version: connectParams.client.version,
+          });
+          send({
+            type: "res",
+            id: frame.id,
+            ok: false,
+            error: errorShape(ErrorCodes.INVALID_REQUEST, errorMessage, {
+              details: { retryAfterMs },
+            }),
+          });
+          close(1008, truncateCloseReason("rate-limited"));
+          return;
+        }
+
+        if (
+          !authOk &&
+          rateLimitKey &&
+          !isLocalClient &&
+          authResult.reason &&
+          AUTH_MISMATCH_REASONS.has(authResult.reason)
+        ) {
+          authRateLimiter.recordFailure(rateLimitKey, authRateLimitOptions.windowMs);
+        }
         const sharedAuthResult = hasSharedAuth
           ? await authorizeGatewayConnect({
               auth: { ...resolvedAuth, allowTailscale: false },

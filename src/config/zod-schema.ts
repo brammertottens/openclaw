@@ -394,6 +394,10 @@ export const OpenClawSchema = z
           .strict()
           .optional(),
         trustedProxies: z.array(z.string()).optional(),
+        /** Max failed auth attempts allowed per client IP within the window. */
+        authRateLimitPerIp: z.number().int().min(0).optional(),
+        /** Window length in ms for gateway auth failure rate limiting. */
+        authRateLimitWindowMs: z.number().int().min(0).optional(),
         tailscale: z
           .object({
             mode: z.union([z.literal("off"), z.literal("serve"), z.literal("funnel")]).optional(),
@@ -508,6 +512,13 @@ export const OpenClawSchema = z
       .strict()
       .optional(),
     memory: MemorySchema,
+    pairing: z
+      .object({
+        codeRateLimitPerSender: z.number().int().min(0).optional(),
+        codeRateLimitWindowMs: z.number().int().min(0).optional(),
+      })
+      .strict()
+      .optional(),
     skills: z
       .object({
         allowBundled: z.array(z.string()).optional(),

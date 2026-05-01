@@ -245,4 +245,14 @@ export type GatewayConfig = {
    * `x-real-ip`) to determine the client IP for local pairing and HTTP checks.
    */
   trustedProxies?: string[];
+  /**
+   * Maximum failed authentication attempts per client IP within the rate-limit
+   * window. 0 disables the limit. Default: 5.
+   */
+  authRateLimitPerIp?: number;
+  /**
+   * Sliding window length (ms) used by the per-IP auth failure limiter.
+   * Default: 60000 (60 seconds).
+   */
+  authRateLimitWindowMs?: number;
 };
