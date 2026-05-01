@@ -97,6 +97,20 @@ export type OpenClawConfig = {
   talk?: TalkConfig;
   gateway?: GatewayConfig;
   memory?: MemoryConfig;
+  pairing?: PairingConfig;
+};
+
+export type PairingConfig = {
+  /**
+   * Maximum failed pairing-code attempts allowed per (channel, sender) pair
+   * within the rate-limit window. 0 disables the limit. Default: 3.
+   */
+  codeRateLimitPerSender?: number;
+  /**
+   * Sliding window length (ms) used by the pairing-code failure limiter.
+   * Default: 60000 (60 seconds).
+   */
+  codeRateLimitWindowMs?: number;
 };
 
 export type ConfigValidationIssue = {

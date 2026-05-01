@@ -6,6 +6,7 @@ import lockfile from "proper-lockfile";
 import type { ChannelId, ChannelPairingAdapter } from "../channels/plugins/types.js";
 import { getPairingAdapter } from "../channels/plugins/pairing.js";
 import { resolveOAuthDir, resolveStateDir } from "../config/paths.js";
+import { checkPairingCodeLimit, recordPairingCodeFailure } from "./rate-limiter.js";
 
 const PAIRING_CODE_LENGTH = 8;
 const PAIRING_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -518,10 +519,24 @@ export async function approveChannelPairingCode(params: {
   channel: PairingChannel;
   code: string;
   env?: NodeJS.ProcessEnv;
+  meta?: Record<string, string | undefined>;
 }): Promise<{ id: string; entry?: PairingRequest } | null> {
   const env = params.env ?? process.env;
   const code = params.code.trim().toUpperCase();
   if (!code) {
+    return null;
+  }
+
+  // Per-(channel, sender) rate limit on failed attempts. When the caller can
+  // supply a sender identity via `meta.senderId` we key on that; otherwise we
+  // fall back to a coarse "unknown" bucket per channel so an unauthenticated
+  // surface still throttles brute-force guessing.
+  const senderId =
+    typeof params.meta?.senderId === "string" && params.meta.senderId.trim()
+      ? params.meta.senderId.trim()
+      : "unknown";
+  const limit = checkPairingCodeLimit(params.channel, senderId);
+  if (!limit.allowed) {
     return null;
   }
 
@@ -545,6 +560,7 @@ export async function approveChannelPairingCode(params: {
             requests: pruned,
           } satisfies PairingStore);
         }
+        recordPairingCodeFailure(params.channel, senderId);
         return null;
       }
       const entry = pruned[idx];
