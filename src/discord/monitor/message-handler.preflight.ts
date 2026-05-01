@@ -17,15 +17,17 @@ import { formatAllowlistMatchMeta } from "../../channels/allowlist-match.js";
 import { resolveControlCommandGate } from "../../channels/command-gating.js";
 import { logInboundDrop } from "../../channels/logging.js";
 import { resolveMentionGatingWithBypass } from "../../channels/mention-gating.js";
+import {
+  buildGateContext,
+  checkAllowlistAndSnapshot,
+  type InboundMessageGateContext,
+} from "../../gateway/allowlist-gate.js";
 import { logVerbose, shouldLogVerbose } from "../../globals.js";
 import { recordChannelActivity } from "../../infra/channel-activity.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
 import { getChildLogger } from "../../logging.js";
 import { buildPairingReply } from "../../pairing/pairing-messages.js";
-import {
-  readChannelAllowFromStore,
-  upsertChannelPairingRequest,
-} from "../../pairing/pairing-store.js";
+import { upsertChannelPairingRequest } from "../../pairing/pairing-store.js";
 import { resolveAgentRoute } from "../../routing/resolve-route.js";
 import { fetchPluralKitMessageInfo } from "../pluralkit.js";
 import { sendMessageDiscord } from "../send.js";
@@ -92,6 +94,31 @@ export async function preflightDiscordMessage(
     pluralkitInfo,
   });
 
+  // MT-009: Run the centralized allowlist gate once at the top of inbound
+  // processing. The snapshot is propagated through `gateContext` so downstream
+  // consumers consult a single, frozen view of the allowlist for this message.
+  const gateResult = await checkAllowlistAndSnapshot({
+    channel: "discord",
+    rawSenderId: author.id,
+    overrideAllowFrom: params.allowFrom?.map((entry) => String(entry)),
+  }).catch((err) => {
+    logVerbose(`discord: allowlist gate failed for ${author.id}: ${String(err)}`);
+    return null;
+  });
+  const gateContext: InboundMessageGateContext = gateResult
+    ? buildGateContext(gateResult)
+    : Object.freeze({
+        channel: "discord" as const,
+        normalizedSenderId: String(author.id).trim(),
+        rawSenderId: String(author.id).trim(),
+        allowlistSnapshot: Object.freeze({
+          channel: "discord" as const,
+          entries: Object.freeze([] as readonly string[]),
+          version: 0,
+        }),
+      });
+  const storeAllowFromSnapshot = Array.from(gateContext.allowlistSnapshot.entries);
+
   if (author.bot) {
     if (!allowBots && !sender.isPluralKit) {
       logVerbose("discord: drop bot message (allowBots=false)");
@@ -121,8 +148,10 @@ export async function preflightDiscordMessage(
       return null;
     }
     if (dmPolicy !== "open") {
-      const storeAllowFrom = await readChannelAllowFromStore("discord").catch(() => []);
-      const effectiveAllowFrom = [...(params.allowFrom ?? []), ...storeAllowFrom];
+      // MT-009: read from the gate snapshot rather than querying the store
+      // again. `storeAllowFromSnapshot` is the same data the gate observed
+      // when it admitted this message — re-reading would re-introduce TOCTOU.
+      const effectiveAllowFrom = [...(params.allowFrom ?? []), ...storeAllowFromSnapshot];
       const allowList = normalizeDiscordAllowList(effectiveAllowFrom, ["discord:", "user:", "pk:"]);
       const allowMatch = allowList
         ? resolveDiscordAllowListMatch({
@@ -571,5 +600,6 @@ export async function preflightDiscordMessage(
     effectiveWasMentioned,
     canDetectMention,
     historyEntry,
+    gateContext,
   };
 }
