@@ -1,0 +1,7 @@
+{
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": ["trent"],
+  "permissions": {
+    "allow": ["mcp__trent__list_projects"]
+  }
+}

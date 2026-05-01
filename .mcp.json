@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "trent": {
+      "type": "stdio",
+      "command": "trent-mcp",
+      "env": {
+        "TRENT_CHAT_API_URL": "https://chat.trent.ai",
+        "TRENT_AGENT_API_URL": "https://api.trent.ai",
+        "AUTH0_DOMAIN": "auth.trent.ai",
+        "AUTH0_CLIENT_ID": "Jd1HSd5aa30qHOW4JevkWeanwIlG7A1f",
+        "AUTH0_AUDIENCE": "https://api.trent.ai/v1",
+        "TRENT_API_KEY": ""
+      }
+    }
+  }
+}

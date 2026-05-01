@@ -220,17 +220,88 @@ function normalizeAllowEntry(channel: PairingChannel, entry: string): string {
   return String(normalized).trim();
 }
 
+/**
+ * Frozen, channel-tagged identity computed at ingestion. Downstream code must treat
+ * `normalizedSenderId` as authoritative and never re-normalize the raw id later in
+ * the pipeline (defense-in-depth against TOCTOU and divergent normalization).
+ */
+export type ImmutableSenderIdentity = Readonly<{
+  channel: PairingChannel;
+  rawSenderId: string;
+  normalizedSenderId: string;
+}>;
+
+/**
+ * Normalize a raw sender id exactly once at the point of ingestion, then freeze
+ * the result so downstream code cannot re-normalize or mutate it. Same semantics
+ * as the per-channel allowlist normalization, applied to the live message id.
+ */
+export function normalizeAndImmutalizeSenderId(
+  channel: PairingChannel,
+  rawId: string | number,
+): ImmutableSenderIdentity {
+  const rawSenderId = normalizeId(rawId);
+  const normalizedSenderId = normalizeAllowEntry(channel, rawSenderId);
+  return Object.freeze({
+    channel,
+    rawSenderId,
+    normalizedSenderId,
+  });
+}
+
+async function readAllowFromFile(
+  filePath: string,
+): Promise<{ list: string[]; mtimeMs: number; exists: boolean }> {
+  const { value, exists } = await readJsonFile<AllowFromStore>(filePath, {
+    version: 1,
+    allowFrom: [],
+  });
+  let mtimeMs = 0;
+  if (exists) {
+    try {
+      const stat = await fs.promises.stat(filePath);
+      mtimeMs = stat.mtimeMs;
+    } catch {
+      mtimeMs = 0;
+    }
+  }
+  const list = Array.isArray(value.allowFrom) ? value.allowFrom : [];
+  return { list, mtimeMs, exists };
+}
+
 export async function readChannelAllowFromStore(
   channel: PairingChannel,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string[]> {
   const filePath = resolveAllowFromPath(channel, env);
-  const { value } = await readJsonFile<AllowFromStore>(filePath, {
-    version: 1,
-    allowFrom: [],
-  });
-  const list = Array.isArray(value.allowFrom) ? value.allowFrom : [];
+  const { list } = await readAllowFromFile(filePath);
   return list.map((v) => normalizeAllowEntry(channel, String(v))).filter(Boolean);
+}
+
+/**
+ * Versioned snapshot of the on-disk allowlist for a channel. The `version` is the
+ * file's mtime in milliseconds (0 when the file does not exist yet) and is used
+ * to detect store reloads between when a message was admitted and when later
+ * code re-checks the allowlist.
+ */
+export type ChannelAllowFromSnapshot = Readonly<{
+  channel: PairingChannel;
+  entries: readonly string[];
+  version: number;
+}>;
+
+export async function readChannelAllowFromStoreWithVersion(
+  channel: PairingChannel,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ChannelAllowFromSnapshot> {
+  const filePath = resolveAllowFromPath(channel, env);
+  const { list, mtimeMs } = await readAllowFromFile(filePath);
+  const entries = list.map((v) => normalizeAllowEntry(channel, String(v))).filter(Boolean);
+  return Object.freeze({
+    channel,
+    entries: Object.freeze(entries),
+    version: mtimeMs,
+  });
 }
 
 export async function addChannelAllowFromStoreEntry(params: {

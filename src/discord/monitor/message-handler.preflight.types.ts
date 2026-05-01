@@ -1,6 +1,7 @@
 import type { ChannelType, Client, User } from "@buape/carbon";
 import type { HistoryEntry } from "../../auto-reply/reply/history.js";
 import type { ReplyToMode } from "../../config/config.js";
+import type { InboundMessageGateContext } from "../../gateway/allowlist-gate.js";
 import type { resolveAgentRoute } from "../../routing/resolve-route.js";
 import type { DiscordChannelConfigResolved, DiscordGuildEntryResolved } from "./allow-list.js";
 import type { DiscordChannelInfo } from "./message-utils.js";
@@ -69,6 +70,10 @@ export type DiscordMessagePreflightContext = {
   channelConfig: DiscordChannelConfigResolved | null;
   channelAllowlistConfigured: boolean;
   channelAllowed: boolean;
+
+  // MT-009: gate context populated once at ingestion; downstream code reads
+  // from this snapshot instead of re-querying the on-disk allowlist store.
+  gateContext: InboundMessageGateContext;
 
   shouldRequireMention: boolean;
   hasAnyMention: boolean;
